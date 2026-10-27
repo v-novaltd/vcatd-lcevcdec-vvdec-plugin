@@ -29,7 +29,14 @@
  *
  * Contact: legal@roncatech.com
  */
-package com.roncatech.libvcat.vvdec;
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 V-Nova International Limited
+ *
+ * Modified by V-Nova International Limited, to support integration with LCEVCdec.
+ * V-Nova's modifications are licensed under GPL-3.0-or-later.
+ */
+
+package com.roncatech.libvcat.lcevcvvdec;
 
 import android.os.Handler;
 import android.util.Log;
@@ -47,45 +54,61 @@ import com.google.android.exoplayer2.decoder.VideoDecoderOutputBuffer;
 import com.google.android.exoplayer2.video.DecoderVideoRenderer;
 import com.google.android.exoplayer2.video.VideoRendererEventListener;
 
-/**
- * Software VVC (H.266) renderer using vvdec via JNI, patterned after the dav1d path.
- */
-public final class VvdecVideoRenderer extends DecoderVideoRenderer {
+/** Software VVC (H.266) renderer using vvdec via JNI, patterned after the dav1d path. */
+public final class LcevcVvdecVideoRenderer extends DecoderVideoRenderer {
 
-    private static final String TAG = "VvdecVideoRenderer";
+    private static final String TAG = "LcevcVvdecVideoRenderer";
     private static final int MAX_DROPPED_FRAMES_TO_NOTIFY = 50;
 
     private final int threads;
+    private final int lcevcThreads;
+    private final boolean lcevcGpu;
 
-    private VvdecDecoder decoder;
+    private LcevcVvdecDecoder decoder;
     private Surface currentSurface;
 
-    /**
-     * @param allowedJoiningTimeMs same semantics as ExoPlayer’s DecoderVideoRenderer
-     * @param eventHandler handler for video events
-     * @param eventListener listener for video events
-     * @param threads decoder worker thread count (>=1)
-     */
-    public VvdecVideoRenderer(
+    public LcevcVvdecVideoRenderer(
             long allowedJoiningTimeMs,
             Handler eventHandler,
             VideoRendererEventListener eventListener,
-            int threads) {
+            int threads,
+            int lcevcThreads,
+            boolean lcevcGpu) {
         super(allowedJoiningTimeMs, eventHandler, eventListener, MAX_DROPPED_FRAMES_TO_NOTIFY);
         this.threads = Math.max(1, threads);
+        this.lcevcThreads = lcevcThreads;
+        this.lcevcGpu = lcevcGpu;
     }
 
-    @Override public String getName() { return "VvdecVideoRenderer"; }
+    @Override
+    public void handleMessage(int messageType, Object message)
+            throws com.google.android.exoplayer2.ExoPlaybackException {
+        super.handleMessage(messageType, message);
+        if (messageType == com.google.android.exoplayer2.Renderer.MSG_SET_VIDEO_OUTPUT) {
+            currentSurface = message instanceof Surface ? (Surface) message : null;
+            if (decoder != null) {
+                decoder.setOutputSurface(currentSurface);
+            }
+        }
+    }
 
     @Override
-    protected Decoder<DecoderInputBuffer, ? extends VideoDecoderOutputBuffer, ? extends DecoderException>
-    createDecoder(Format format, CryptoConfig cryptoConfig) throws VvdecDecoderException {
-        VvdecLibrary.load();
-        this.decoder = new VvdecDecoder(threads);
+    public String getName() {
+        return "LcevcVvdecVideoRenderer";
+    }
+
+    @Override
+    protected Decoder<
+                    DecoderInputBuffer,
+                    ? extends VideoDecoderOutputBuffer,
+                    ? extends DecoderException>
+            createDecoder(Format format, CryptoConfig cryptoConfig)
+                    throws LcevcVvdecDecoderException {
+        LcevcVvdecLibrary.load();
+        this.decoder = new LcevcVvdecDecoder(threads, lcevcThreads, lcevcGpu);
         if (this.currentSurface != null) {
             this.decoder.setOutputSurface(this.currentSurface);
         }
-        // pass input format (for width/height reporting etc.)
         this.decoder.setInputFormat(format);
         return this.decoder;
     }
@@ -93,41 +116,30 @@ public final class VvdecVideoRenderer extends DecoderVideoRenderer {
     @Override
     protected void renderOutputBufferToSurface(
             VideoDecoderOutputBuffer outputBuffer, Surface surface)
-            throws VvdecDecoderException {
+            throws LcevcVvdecDecoderException {
         if (decoder == null) {
-            throw new VvdecDecoderException(
+            throw new LcevcVvdecDecoderException(
                     "Failed to render output buffer to surface: decoder is not initialized.");
         }
         if (surface != currentSurface) {
-            currentSurface = surface;                 // may be null
+            currentSurface = surface; // may be null
             decoder.setOutputSurface(currentSurface); // JNI caches/releases ANativeWindow
         }
 
-        decoder.renderToSurface((VvdecOutputBuffer) outputBuffer);
-        outputBuffer.release();
-    }
-
-    private static String videoOutputModeStr(int outputMode){
-        switch (outputMode){
-            case C.VIDEO_OUTPUT_MODE_YUV: return "VIDEO_OUTPUT_MODE_YUV";
-            case C.VIDEO_OUTPUT_MODE_SURFACE_YUV: return "VIDEO_OUTPUT_MODE_SURFACE_YUV";
-            case C.VIDEO_OUTPUT_MODE_NONE: return "VIDEO_OUTPUT_MODE_NONE";
+        try {
+            decoder.renderToSurface((LcevcVvdecOutputBuffer) outputBuffer);
+        } finally {
+            outputBuffer.release();
         }
-        return "UNKNOWN";
     }
 
     @Override
     protected void setDecoderOutputMode(int outputMode) {
-        Log.d(TAG, "setDecoderOutputMode=" + videoOutputModeStr(outputMode));
-        switch (outputMode) {
-            case C.VIDEO_OUTPUT_MODE_YUV:
-            case C.VIDEO_OUTPUT_MODE_SURFACE_YUV:
-            case C.VIDEO_OUTPUT_MODE_NONE:
-                // vvdec always outputs planar YUV; surface blit is handled in JNI.
-                return;
-            default:
-                throw new IllegalArgumentException(
-                        "Surface output mode (" + videoOutputModeStr(outputMode) + ") not supported by vvdec");
+        // Native pictures are presented directly to the Surface.
+        if (outputMode != C.VIDEO_OUTPUT_MODE_YUV
+                && outputMode != C.VIDEO_OUTPUT_MODE_SURFACE_YUV
+                && outputMode != C.VIDEO_OUTPUT_MODE_NONE) {
+            throw new IllegalArgumentException("Unsupported output mode: " + outputMode);
         }
     }
 
@@ -135,17 +147,14 @@ public final class VvdecVideoRenderer extends DecoderVideoRenderer {
     protected DecoderReuseEvaluation canReuseDecoder(String name, Format oldF, Format newF) {
         // Re-init on format change (simplest + safest for benchmarking).
         return new DecoderReuseEvaluation(
-                name, oldF, newF,
-                DecoderReuseEvaluation.REUSE_RESULT_NO, /* discardReasons */ 0);
+                name, oldF, newF, DecoderReuseEvaluation.REUSE_RESULT_NO, /* discardReasons */ 0);
     }
 
     @Override
     public int supportsFormat(Format format) {
         final String mime = format.sampleMimeType;
 
-        Log.i(TAG, "supportsFormat check for " + mime);
-
-        // ExoPlayer 2.x doesn’t define a constant for VVC; accept common strings.
+        // ExoPlayer 2.x doesn't define a constant for VVC; accept common strings.
         final boolean isVvc = "video/vvc".equals(mime) || "video/h266".equals(mime);
         if (!isVvc) {
             return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_TYPE);
@@ -179,8 +188,15 @@ public final class VvdecVideoRenderer extends DecoderVideoRenderer {
             long nowMs = elapsedRealtimeUs / 1000L;
             if (nowMs - lastVeryLateLogMs > 1000L) {
                 lastVeryLateLogMs = nowMs;
-                Log.w(TAG, "VERY-LATE earlyUs=" + earlyUs + " (" + (earlyUs / 1000L) + " ms late)"
-                        + " consecutive=" + (++veryLateCount));
+                Log.w(
+                        TAG,
+                        "VERY-LATE earlyUs="
+                                + earlyUs
+                                + " ("
+                                + (earlyUs / 1000L)
+                                + " ms late)"
+                                + " consecutive="
+                                + (++veryLateCount));
             }
         }
         return veryLate;
@@ -188,6 +204,7 @@ public final class VvdecVideoRenderer extends DecoderVideoRenderer {
 
     /** Diagnostics for the skip-to-keyframe threshold; see shouldDropBuffersToKeyframe. */
     private long lastVeryLateLogMs = 0L;
+
     private int veryLateCount = 0;
 
     // shouldForceRenderOutputBuffer is deliberately NOT overridden.

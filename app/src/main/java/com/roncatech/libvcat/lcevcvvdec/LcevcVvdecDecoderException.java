@@ -29,25 +29,19 @@
  *
  * Contact: legal@roncatech.com
  */
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 V-Nova International Limited
+ *
+ * Modified by V-Nova International Limited, to support integration with LCEVCdec.
+ * V-Nova's modifications are licensed under GPL-3.0-or-later.
+ */
 
-package com.roncatech.libvcat.vvdec;
+package com.roncatech.libvcat.lcevcvvdec;
 
-import android.content.Context;
-import android.os.Handler;
+import com.google.android.exoplayer2.decoder.DecoderException;
 
-import com.google.android.exoplayer2.Renderer;
-import com.google.android.exoplayer2.video.VideoRendererEventListener;
-
-/** Provider contract for a software VVC (H.266) renderer backed by vvdec. */
-public interface VvdecRendererProvider {
-    /** Stable id used by user config, e.g. "vvdec". */
-    String id();
-
-    /** Quick availability probe (no heavy work). Return false if unavailable on this device/build. */
-    boolean isAvailable(Context context);
-
-    /** Build the renderer or throw IllegalStateException for strict fail. */
-    Renderer build(long allowedJoiningTimeMs,
-                   Handler eventHandler,
-                   VideoRendererEventListener eventListener);
+public final class LcevcVvdecDecoderException extends DecoderException {
+    public LcevcVvdecDecoderException(String msg) { super(msg); }
+    public LcevcVvdecDecoderException(Throwable cause) { super(cause); }
+    public LcevcVvdecDecoderException(String msg, Throwable cause) { super(msg, cause); }
 }

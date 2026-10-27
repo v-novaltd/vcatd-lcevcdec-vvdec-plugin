@@ -4,26 +4,32 @@
  * SPDX-FileCopyrightText: Copyright (C) 2020-2025 VCAT authors and RoncaTech
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 V-Nova International Limited
+ *
+ * Modified by V-Nova International Limited, to support integration with LCEVCdec.
+ * V-Nova's modifications are licensed under GPL-3.0-or-later.
+ */
 
 plugins {
     id 'com.android.library' version '8.7.3' apply false
 }
 
-// ./gradlew dist  →  build/outputs/dist/vcatd-vvdec-plugin.aar
+// ./gradlew dist → app/build/outputs/dist/{vulkan,cpu} plugin AARs
 tasks.register("dist") {
     group       = "build"
-    description = "Build release AAR and copy to app/build/outputs/dist/"
-    dependsOn(":vcatd-vvdec-plugin:dist")
+    description = "Build CPU and Vulkan plugin AARs in app/build/outputs/dist/"
+    dependsOn(":vcatd-lcevcdec-vvdec-plugin:dist")
 }
 
 // ./gradlew publishPlugin  →  Maven Local
 tasks.register("publishPlugin") {
     group       = "build"
-    description = "Build and publish vcatd-vvdec-plugin to Maven Local"
-    dependsOn(":vcatd-vvdec-plugin:publishReleasePublicationToMavenLocal")
+    description = "Build and publish vcatd-lcevcdec-vvdec-plugin to Maven Local"
+    dependsOn(":vcatd-lcevcdec-vvdec-plugin:publishReleasePublicationToMavenLocal")
     doLast {
         println("\nPublished to Maven Local:")
-        println("  com.roncatech.vcat:vcatd-vvdec-plugin:0.0.1")
-        println("\nLocation: ${System.getProperty('user.home')}/.m2/repository/com/roncatech/vcat/vcatd-vvdec-plugin/")
+        println("  com.roncatech.vcat:vcatd-lcevcdec-vvdec-plugin:0.0.1")
+        println("\nLocation: ${System.getProperty('user.home')}/.m2/repository/com/roncatech/vcat/vcatd-lcevcdec-vvdec-plugin/")
     }
 }

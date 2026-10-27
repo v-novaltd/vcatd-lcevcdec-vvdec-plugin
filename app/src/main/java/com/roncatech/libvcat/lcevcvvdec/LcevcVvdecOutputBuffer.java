@@ -29,13 +29,28 @@
  *
  * Contact: legal@roncatech.com
  */
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 V-Nova International Limited
+ *
+ * Modified by V-Nova International Limited, to support integration with LCEVCdec.
+ * V-Nova's modifications are licensed under GPL-3.0-or-later.
+ */
 
-package com.roncatech.libvcat.vvdec;
+package com.roncatech.libvcat.lcevcvvdec;
 
-import com.google.android.exoplayer2.decoder.DecoderException;
+import com.google.android.exoplayer2.decoder.VideoDecoderOutputBuffer;
 
-public final class VvdecDecoderException extends DecoderException {
-    public VvdecDecoderException(String msg) { super(msg); }
-    public VvdecDecoderException(Throwable cause) { super(cause); }
-    public VvdecDecoderException(String msg, Throwable cause) { super(msg, cause); }
+final class LcevcVvdecOutputBuffer extends VideoDecoderOutputBuffer {
+    /** Native handle to an LCEVC output picture (0 when none). */
+    long nativePic;
+
+    LcevcVvdecOutputBuffer(Owner owner) {
+        super(owner);
+    }
+
+    @Override
+    public void clear() {
+        super.clear();
+        nativePic = 0;
+    }
 }

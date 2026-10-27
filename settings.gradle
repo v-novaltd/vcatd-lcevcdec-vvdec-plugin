@@ -4,6 +4,12 @@
  * SPDX-FileCopyrightText: Copyright (C) 2020-2025 VCAT authors and RoncaTech
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 V-Nova International Limited
+ *
+ * Modified by V-Nova International Limited, to support integration with LCEVCdec.
+ * V-Nova's modifications are licensed under GPL-3.0-or-later.
+ */
 
 pluginManagement {
     repositories {
@@ -27,6 +33,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "vcatd-vvdec-plugin"
-include(":vcatd-vvdec-plugin")
-project(":vcatd-vvdec-plugin").projectDir = file("app")
+rootProject.name = "vcatd-lcevcdec-vvdec-plugin"
+include(":vcatd-lcevcdec-vvdec-plugin")
+project(":vcatd-lcevcdec-vvdec-plugin").projectDir = file("app")

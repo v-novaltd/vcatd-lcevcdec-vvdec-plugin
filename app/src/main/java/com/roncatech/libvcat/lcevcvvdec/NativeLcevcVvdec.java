@@ -29,16 +29,32 @@
  *
  * Contact: legal@roncatech.com
  */
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 V-Nova International Limited
+ *
+ * Modified by V-Nova International Limited, to support integration with LCEVCdec.
+ * V-Nova's modifications are licensed under GPL-3.0-or-later.
+ */
 
-package com.roncatech.libvcat.vvdec;
+package com.roncatech.libvcat.lcevcvvdec;
 
 import android.view.Surface;
+
 import java.nio.ByteBuffer;
 
-public final class NativeVvdec {
+public final class NativeLcevcVvdec {
 
-    // Creates a decoder context; returns 0 on failure.
-    public static native long nativeCreate(int threads);
+    public static final int RESULT_OK = 0;
+    public static final int ERROR_IO = -5;
+    public static final int ERROR_AGAIN = -11;
+    public static final int ERROR_NO_DEVICE = -19;
+
+    public static final int DEQUEUE_PENDING = 0;
+    public static final int DEQUEUE_ERROR = -1;
+    public static final int DEQUEUE_END_OF_STREAM = -2;
+
+    // Non-positive LCEVC threads use the SDK default; nonzero gpuPipeline selects Vulkan.
+    public static native long nativeCreate(int threads, int lcevcThreads, int gpuPipeline);
 
     // Flushes decoder state (drains/clears internal queues).
     public static native void nativeFlush(long ctx);
@@ -46,21 +62,20 @@ public final class NativeVvdec {
     // Destroys the decoder context and frees resources.
     public static native void nativeClose(long ctx);
 
-    public static native boolean nativeHasCapacity(long ctx);
-    public static native void    nativeSignalEof(long ctx);
+    public static native void nativeSignalEof(long ctx);
 
     // Queues one compressed sample (direct ByteBuffer required).
-    // Returns 0 on success; negative errno on error (e.g., -22 for EINVAL).
+    // Returns RESULT_OK on success, ERROR_AGAIN for backpressure, or another negative errno.
     public static native int nativeQueueInput(
-            long ctx, ByteBuffer buffer, int offset, int size, long ptsUs);
+            long ctx, ByteBuffer buffer, int offset, int size, long ptsUs, boolean decodeOnly);
 
     // Attempts to dequeue a decoded frame.
     // Returns 0 if no frame yet; otherwise a non-zero native handle.
-    // outWidthHeight[0]=w, [1]=h; outPtsUs[0]=pts.
-    public static native long nativeDequeueFrame(
-            long ctx, int[] outWidthHeight, long[] outPtsUs);
+    // outWidthHeight[0]=w, [1]=h, [2]=decodeOnly; outPtsUs[0]=pts.
+    // No picture: width=0 pending, DEQUEUE_ERROR (height=code), or DEQUEUE_END_OF_STREAM.
+    public static native long nativeDequeueFrame(long ctx, int[] outWidthHeight, long[] outPtsUs);
 
-    // Renders a decoded frame to the current Surface (YV12 blit in JNI).
+    // Presents the picture's hardware buffer via SurfaceControl.
     // Returns 0 on success; negative on error.
     public static native int nativeRenderToSurface(long ctx, long nativePic);
 
@@ -73,5 +88,5 @@ public final class NativeVvdec {
     // Binds/unbinds the output Surface (cached as ANativeWindow in JNI).
     public static native void nativeSetSurface(long handle, Surface surface);
 
-    private NativeVvdec() {}
+    private NativeLcevcVvdec() {}
 }

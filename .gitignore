@@ -18,4 +18,6 @@ local.properties
 
 # Claude Code
 .claude/
+
+# Native build output
 **/.cxx/

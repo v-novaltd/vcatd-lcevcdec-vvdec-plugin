@@ -4,6 +4,12 @@
  * SPDX-FileCopyrightText: Copyright (C) 2020-2025 VCAT authors and RoncaTech
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 V-Nova International Limited
+ *
+ * Modified by V-Nova International Limited, to support integration with LCEVCdec.
+ * V-Nova's modifications are licensed under GPL-3.0-or-later.
+ */
 
 plugins {
     id 'com.android.library'
@@ -13,23 +19,38 @@ plugins {
 group   = 'com.roncatech.vcat'
 version = '0.0.1'
 
-def vvdecAbis = ['arm64-v8a', 'armeabi-v7a']
-def minApi    = 29
+def vvdecAbis = ['arm64-v8a']   // arm64-v8a only for the LCEVC integration
+def minApi    = 30
+
+def propertyBool = { propertyName ->
+    def value = project.findProperty(propertyName)
+    value != null && !['OFF', 'FALSE', '0', 'NO'].contains(value.toString().toUpperCase())
+}
+
+def buildWithPerfettoSystemSink = propertyBool('buildWithPerfettoSystemSink')
+def buildWithConan = propertyBool('buildWithConan')
+def conanClangVersion = (findProperty('CONAN_CLANG_VERSION') ?: '18').toString()
+def conanDepsRoot = layout.buildDirectory.dir('conan')
 
 android {
-    namespace 'com.roncatech.libvcat.vvdec'
-    compileSdk 35
-    ndkVersion "27.0.12077973"
+    namespace 'com.roncatech.libvcat.lcevcvvdec'
+    compileSdk 34
+    ndkVersion "27.3.13750724"
 
     defaultConfig {
         minSdk minApi
-        targetSdk 35
+        targetSdk 34
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters.addAll(vvdecAbis) }
 
         externalNativeBuild {
             cmake {
                 arguments "-DVVDEC_INSTALL_ARM64_V8A=${layout.buildDirectory.dir('vvdec/install-arm64-v8a').get().asFile.absolutePath}",
-                          "-DVVDEC_INSTALL_ARMEABI_V7A=${layout.buildDirectory.dir('vvdec/install-armeabi-v7a').get().asFile.absolutePath}"
+                          "-DLCEVC_SRC_DIR=${layout.buildDirectory.dir('lcevc/src').get().asFile.absolutePath}",
+                          "-DVN_SDK_TRACING_SYSTEM_SINK=${buildWithPerfettoSystemSink}"
+                if (buildWithConan) {
+                    arguments "-DCONAN_DEPS_ROOT=${conanDepsRoot.get().asFile.absolutePath}"
+                }
             }
         }
 
@@ -44,24 +65,133 @@ android {
         debug { debuggable true }
     }
 
-    externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt') } }
+    externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt'); version '3.22.1' } }
+
+    sourceSets { androidTest.assets.srcDir(layout.buildDirectory.dir('generated/decoder-assets')) }
+
+    testOptions { unitTests.returnDefaultValues = true }
 
     publishing {
         singleVariant("release") { withSourcesJar() }
     }
 }
 
-/* ===== vvdec build (CMake/Ninja) ===== */
+// vvdec build (CMake/Ninja).
 
 def vvdecWorkRoot = layout.buildDirectory.dir('vvdec').get().asFile
 def vvdecSrcDir   = new File(vvdecWorkRoot, 'src')
 
-def vvdecRef    = (findProperty('vvdecRef')    ?: 'v3.2.0') as String
+def vvdecRef    = (findProperty('vvdecRef')    ?: 'v3.2.1') as String
 def vvdecRemote = (findProperty('vvdecRemote') ?: 'https://github.com/fraunhoferhhi/vvdec.git') as String
-def vvdecLocal  = (findProperty('VVDEC_SRC')   ?: System.getenv('VVDEC_SRC')) as String
+def vvdecLocal  = (findProperty('vvdecLocal')  ?: System.getenv('VVDEC_SRC')) as String
+
+def isWindows = System.getProperty('os.name').toLowerCase().contains('windows')
+
+def resolveCmakeBinDir = {
+    def croot = new File(android.sdkDirectory, 'cmake')
+    def valid = croot.listFiles()
+            ?.findAll { it.isDirectory() && new File(it, isWindows ? 'bin/cmake.exe' : 'bin/cmake').exists() }
+    if (!valid) throw new GradleException("No CMake found under ${croot}. Install 'CMake' via the Android SDK Manager.")
+    def chosen = valid.find { it.name == '3.22.1' }
+            ?: valid.findAll { it.name.startsWith('3.') }.sort { a, b -> b.name <=> a.name }.find { true }
+            ?: valid.sort { a, b -> b.name <=> a.name }.first()
+    return new File(chosen, 'bin')
+}
+
+// LCEVCdec (CPU and Vulkan)
+
+def lcevcWorkRoot = layout.buildDirectory.dir('lcevc').get().asFile
+def lcevcSrcDir   = new File(lcevcWorkRoot, 'src')
+
+def lcevcRef = (findProperty('lcevcRef') ?: 'main') as String
+def lcevcRemote = (findProperty('lcevcRemote') ?: 'https://github.com/v-novaltd/LCEVCdec.git') as String
+def lcevcLocal  = (findProperty('lcevcLocal')  ?: System.getenv('LCEVC_SRC')) as String
+
+tasks.register('fetchLcevc') {
+    outputs.dir(lcevcSrcDir)
+    inputs.property('lcevcResolvedSource', lcevcLocal ?: "${lcevcRemote}#${lcevcRef}")
+    if (lcevcLocal) inputs.dir(lcevcLocal).withPropertyName('localLcevcSource')
+    doLast {
+        lcevcWorkRoot.mkdirs()
+
+        if (lcevcLocal) {
+            delete lcevcSrcDir
+            copy { from lcevcLocal; into lcevcSrcDir; exclude '.git' }
+            return
+        }
+
+        logger.lifecycle("fetchLcevc: cloning ${lcevcRemote} @ ${lcevcRef}")
+        def clearGitEnv = { s -> s.environment.remove('GIT_DIR'); s.environment.remove('GIT_WORK_TREE') }
+
+        delete lcevcSrcDir
+        exec {
+            workingDir lcevcWorkRoot
+            clearGitEnv(delegate)
+            // The Conan recipe derives its version with `git describe`, so the clone must retain
+            // the tagged history reachable from the selected ref.
+            commandLine 'git', 'clone', '--branch', lcevcRef, lcevcRemote, 'src'
+        }
+    }
+}
+
+def installConanDependencies = tasks.register('installConanDependencies') {
+    description = 'Install Android LCEVCdec dependencies using Conan'
+    group = 'build setup'
+
+    dependsOn 'fetchLcevc'
+    inputs.property('ndkVersion', android.ndkVersion)
+    inputs.property('clangVersion', conanClangVersion)
+    inputs.property('androidApiLevel', minApi)
+    inputs.property('buildWithPerfettoSystemSink', buildWithPerfettoSystemSink)
+
+    onlyIf { buildWithConan }
+
+    doLast {
+        def configurations = gradle.taskGraph.allTasks.collect { configuredTask ->
+            def match = configuredTask.name =~ /^configureCMake(Debug|Release|RelWithDebInfo)\[([^]]+)]$/
+            match.matches() ? [buildType: match.group(1), abi: match.group(2)] : null
+        }.findAll().unique()
+
+        configurations.each { configuration ->
+            def outputDir = conanDepsRoot.get().dir("${configuration.buildType}/${configuration.abi}").asFile
+            outputDir.mkdirs()
+            providers.exec {
+                commandLine(
+                        'conan', 'install', new File(lcevcSrcDir, 'conanfile.py'),
+                        "--install-folder=${outputDir}",
+                        '--build=missing',
+                        '--profile:build=default',
+                        '--settings:host=os=Android',
+                        "--settings:host=os.api_level=${minApi}",
+                        '--settings:host=arch=armv8',
+                        '--settings:host=compiler=clang',
+                        "--settings:host=compiler.version=${conanClangVersion}",
+                        '--settings:host=compiler.libcxx=c++_static',
+                        "--settings:host=build_type=${configuration.buildType}",
+                        '--options=base_decoder=none',
+                        '--options=vulkan=True',
+                        "--options=tracing=${buildWithPerfettoSystemSink ? 'True' : 'False'}",
+                        '--options=json_config=False',
+                        "--conf:host=tools.android:ndk_path=${android.ndkDirectory}"
+                )
+            }.result.get().assertNormalExitValue()
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name.startsWith('configureCMake')) {
+        task.dependsOn 'fetchLcevc'
+        if (buildWithConan) {
+            task.dependsOn installConanDependencies
+        }
+    }
+}
 
 tasks.register('fetchVvdec') {
     outputs.dir(vvdecSrcDir)
+    inputs.property('vvdecResolvedSource', vvdecLocal ?: "${vvdecRemote}#${vvdecRef}")
+    if (vvdecLocal) inputs.dir(vvdecLocal).withPropertyName('localVvdecSource')
     doLast {
         vvdecWorkRoot.mkdirs()
 
@@ -80,8 +210,7 @@ tasks.register('fetchVvdec') {
             exec { workingDir vvdecWorkRoot; clearGitEnv(delegate)
                 commandLine 'git', 'clone', '--depth', '1', '--branch', vvdecRef, vvdecRemote, 'src' }
         } else {
-            // Check out FETCH_HEAD, not vvdecRef: a shallow fetch of a tag populates
-            // FETCH_HEAD without creating the tag locally, so checkout by name fails.
+            // A shallow fetch of a tag may only populate FETCH_HEAD, without creating a local tag.
             exec { workingDir vvdecSrcDir; clearGitEnv(delegate); commandLine 'git', 'fetch', '--depth', '1', '--force', 'origin', vvdecRef }
             exec { workingDir vvdecSrcDir; clearGitEnv(delegate); commandLine 'git', 'checkout', '-f', '--detach', 'FETCH_HEAD' }
             exec { workingDir vvdecSrcDir; clearGitEnv(delegate); commandLine 'git', 'clean', '-xfd' }
@@ -95,9 +224,13 @@ vvdecAbis.each { abi ->
 
     tasks.register("buildVvdec_${abi}") {
         dependsOn 'fetchVvdec'
+        inputs.dir(vvdecSrcDir)
         outputs.dir(installDir)
         doLast {
-            // Wipe cmake cache to avoid stale cross-compilation config after source updates
+            def binDir   = resolveCmakeBinDir()
+            def cmakeExe = new File(binDir, isWindows ? 'cmake.exe' : 'cmake').absolutePath
+            def ninjaExe = new File(binDir, isWindows ? 'ninja.exe' : 'ninja').absolutePath
+
             delete buildDir
             buildDir.mkdirs(); installDir.mkdirs()
             def ndk = android.ndkDirectory?.absolutePath
@@ -105,19 +238,21 @@ vvdecAbis.each { abi ->
 
             exec {
                 workingDir buildDir
-                commandLine 'cmake',
+                commandLine cmakeExe,
                         '-G', 'Ninja',
+                        '-D', "CMAKE_MAKE_PROGRAM=${ninjaExe}",
                         '-D', "CMAKE_TOOLCHAIN_FILE=${ndk}/build/cmake/android.toolchain.cmake",
                         '-D', "ANDROID_ABI=${abi}",
                         '-D', "ANDROID_PLATFORM=android-${minApi}",
                         '-D', "CMAKE_BUILD_TYPE=Release",
                         '-D', "BUILD_SHARED_LIBS=OFF",
                         '-D', "VVDEC_ENABLE_TRACING=OFF",
+                        '-D', "VVDEC_LIBRARY_ONLY=ON",
                         '-D', "CMAKE_INSTALL_PREFIX=${installDir.absolutePath}",
                         vvdecSrcDir.absolutePath
             }
-            exec { workingDir buildDir; commandLine 'ninja' }
-            exec { workingDir buildDir; commandLine 'ninja', 'install' }
+            exec { workingDir buildDir; commandLine ninjaExe }
+            exec { workingDir buildDir; commandLine ninjaExe, 'install' }
         }
     }
 }
@@ -126,26 +261,25 @@ tasks.named('preBuild').configure {
     dependsOn vvdecAbis.collect { "buildVvdec_${it}" }
 }
 
-/* ===== dist: produce a ready-to-copy AAR with classes.dex injected ===== */
+// dist: produce one ready-to-copy AAR per decoder.
 
 tasks.register('dist') {
-    description 'Assembles release AAR, injects classes.dex via D8, copies to build/outputs/dist/'
+    description 'Assembles CPU and Vulkan AARs with classes.dex for the single-class host loader'
     group       'build'
     dependsOn   'assembleRelease'
 
     doLast {
-        def aarIn  = layout.buildDirectory.file('outputs/aar/vcatd-vvdec-plugin-release.aar').get().asFile
-        def aarOut = layout.buildDirectory.file('outputs/dist/vcatd-vvdec-plugin.aar').get().asFile
-        aarOut.parentFile.mkdirs()
+        def aarIn  = layout.buildDirectory.file('outputs/aar/vcatd-lcevcdec-vvdec-plugin-release.aar').get().asFile
+        def distDir = layout.buildDirectory.dir('outputs/dist').get().asFile
+        distDir.mkdirs()
+        delete fileTree(distDir) { include '*.aar' }
 
-        // Locate d8 in the highest installed build-tools version
         def btRoot   = new File("${android.sdkDirectory.absolutePath}/build-tools")
         def btLatest = btRoot.listFiles().findAll { it.isDirectory() }
                              .sort { a, b -> b.name <=> a.name }.first()
         def onWindows = System.getProperty('os.name').toLowerCase().contains('windows')
         def d8Exe    = new File(btLatest, onWindows ? 'd8.bat' : 'd8')
 
-        // Extract classes.jar from the AAR
         def tmpDir     = layout.buildDirectory.dir('dist-tmp').get().asFile
         tmpDir.mkdirs()
         def classesJar = new File(tmpDir, 'classes.jar')
@@ -153,7 +287,6 @@ tasks.register('dist') {
             classesJar.bytes = zip.getInputStream(zip.getEntry('classes.jar')).bytes
         }
 
-        // Run D8 to produce classes.dex
         def dexDir = new File(tmpDir, 'dex')
         dexDir.mkdirs()
         exec {
@@ -164,26 +297,34 @@ tasks.register('dist') {
                     classesJar.absolutePath
         }
 
-        // Repack: copy all AAR entries + inject classes.dex
-        def fos = new java.io.FileOutputStream(aarOut)
-        def zos = new java.util.zip.ZipOutputStream(fos)
-        new java.util.zip.ZipFile(aarIn).withCloseable { zip ->
-            zip.entries().each { entry ->
-                zos.putNextEntry(new java.util.zip.ZipEntry(entry.name))
-                if (!entry.isDirectory()) zos.write(zip.getInputStream(entry).bytes)
+        [
+            vulkan: 'com.roncatech.libvcat.lcevcvvdec.VcatLcevcVvdecVulkanPlugin',
+            cpu: 'com.roncatech.libvcat.lcevcvvdec.VcatLcevcVvdecCpuPlugin'
+        ].each { pipeline, pluginClass ->
+            def aarOut = new File(distDir, "vcatd-lcevcdec-vvdec-${pipeline}-plugin.aar")
+            new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(aarOut)).withCloseable { zos ->
+                new java.util.zip.ZipFile(aarIn).withCloseable { zip ->
+                    zip.entries().each { entry ->
+                        if (entry.name != 'assets/plugin-manifest.json') {
+                            zos.putNextEntry(new java.util.zip.ZipEntry(entry.name))
+                            if (!entry.isDirectory()) zos.write(zip.getInputStream(entry).bytes)
+                            zos.closeEntry()
+                        }
+                    }
+                }
+                zos.putNextEntry(new java.util.zip.ZipEntry('assets/plugin-manifest.json'))
+                zos.write("{\"pluginClass\":\"${pluginClass}\",\"loaderClass\":\"com.roncatech.libvcat.lcevcvvdec.LcevcVvdecLibrary\"}\n".getBytes('UTF-8'))
+                zos.closeEntry()
+                zos.putNextEntry(new java.util.zip.ZipEntry('classes.dex'))
+                zos.write(new File(dexDir, 'classes.dex').bytes)
                 zos.closeEntry()
             }
+            logger.lifecycle("dist → ${aarOut.absolutePath}")
         }
-        zos.putNextEntry(new java.util.zip.ZipEntry('classes.dex'))
-        zos.write(new File(dexDir, 'classes.dex').bytes)
-        zos.closeEntry()
-        zos.close()
-
-        logger.lifecycle("dist → ${aarOut.absolutePath}")
     }
 }
 
-/* ===== Publishing ===== */
+// Publishing.
 
 tasks.register('androidJavadocJar', Jar) { archiveClassifier = 'javadoc' }
 
@@ -195,7 +336,7 @@ afterEvaluate {
                 artifact(tasks.named('androidJavadocJar'))
 
                 groupId    = project.group
-                artifactId = 'vcatd-vvdec-plugin'
+                artifactId = 'vcatd-lcevcdec-vvdec-plugin'
                 version    = project.version
 
                 pom {
@@ -217,12 +358,16 @@ afterEvaluate {
     }
 }
 
-/* ===== Dependencies ===== */
+// Dependencies.
 dependencies {
-    compileOnly 'com.roncatech.vcat:vcatd-decoder-plugin-api:1.0.3'
+    compileOnly 'com.roncatech.vcat:vcatd-decoder-plugin-api:1.0.4'
     compileOnly 'com.google.android.exoplayer:exoplayer-core:2.19.1'
     compileOnly 'androidx.annotation:annotation:1.7.1'
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+    androidTestImplementation 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'
+    androidTestImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'com.google.android.exoplayer:exoplayer-core:2.19.1'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'com.google.android.exoplayer:exoplayer-core:2.19.1'
-    testImplementation 'com.roncatech.vcat:vcatd-decoder-plugin-api:1.0.3'
+    testImplementation 'com.roncatech.vcat:vcatd-decoder-plugin-api:1.0.4'
 }

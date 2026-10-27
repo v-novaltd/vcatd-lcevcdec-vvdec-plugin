@@ -1,0 +1,48 @@
+## Modified files
+
+The list below details which files V-Nova has modified from the vcatd-vvdec-plugin project.
+
+- `.gitignore`
+- `CLAUDE.md` (removed)
+- `DIFF_SUMMARY.md` (removed)
+- `README.md`
+- `THIRD-PARTY-NOTICES.md`
+- `app/build.gradle`
+- `app/consumer-rules.pro`
+- `app/proguard-rules.pro` (removed)
+- `app/src/main/assets/plugin-manifest.json`
+- `app/src/main/cpp/CMakeLists.txt`
+- `app/src/main/cpp/lcevcdec_vvdec_jni.cpp`
+- `app/src/main/cpp/utilities/slice_thread_pool.cpp`
+- `app/src/main/cpp/utilities/slice_thread_pool.h`
+- `app/src/main/cpp/utilities/surface_presenter.cpp`
+- `app/src/main/cpp/utilities/surface_presenter.h`
+- `app/src/main/cpp/utilities/trace_scope.h`
+- `app/src/main/cpp/utilities/yuv10_convert_neon.cpp`
+- `app/src/main/cpp/utilities/yuv10_convert_neon.h`
+- `app/src/main/cpp/vvdec_jni.cc` (removed)
+- `app/src/main/java/com/roncatech/libvcat/lcevcvvdec/LcevcVvdecDecoder.java`
+- `app/src/main/java/com/roncatech/libvcat/vvdec/VvdecDecoderException.java` → `app/src/main/java/com/roncatech/libvcat/lcevcvvdec/LcevcVvdecDecoderException.java`
+- `app/src/main/java/com/roncatech/libvcat/vvdec/VvdecLibrary.java` → `app/src/main/java/com/roncatech/libvcat/lcevcvvdec/LcevcVvdecLibrary.java`
+- `app/src/main/java/com/roncatech/libvcat/vvdec/VvdecOutputBuffer.java` → `app/src/main/java/com/roncatech/libvcat/lcevcvvdec/LcevcVvdecOutputBuffer.java`
+- `app/src/main/java/com/roncatech/libvcat/vvdec/VvdecVideoRenderer.java` → `app/src/main/java/com/roncatech/libvcat/lcevcvvdec/LcevcVvdecVideoRenderer.java`
+- `app/src/main/java/com/roncatech/libvcat/vvdec/NativeVvdec.java` → `app/src/main/java/com/roncatech/libvcat/lcevcvvdec/NativeLcevcVvdec.java`
+- `app/src/main/java/com/roncatech/libvcat/lcevcvvdec/VcatLcevcVvdecCpuPlugin.java`
+- `app/src/main/java/com/roncatech/libvcat/vvdec/VcatVvcdecPlugin.java` → `app/src/main/java/com/roncatech/libvcat/lcevcvvdec/VcatLcevcVvdecPlugin.java`
+- `app/src/main/java/com/roncatech/libvcat/lcevcvvdec/VcatLcevcVvdecVulkanPlugin.java`
+- `app/src/main/java/com/roncatech/libvcat/lcevcvvdec/VvcNalUnitUtil.java`
+- `app/src/main/java/com/roncatech/libvcat/lcevcvvdec/VvcVideoCfgParser.java`
+- `app/src/main/java/com/roncatech/libvcat/vvdec/VvcNalUnitUtil.java` (removed)
+- `app/src/main/java/com/roncatech/libvcat/vvdec/VvcVideoCfgParser.java` (removed)
+- `app/src/main/java/com/roncatech/libvcat/vvdec/VvdecDecoder.java` (removed)
+- `app/src/main/java/com/roncatech/libvcat/vvdec/VvdecProvider.java` (removed)
+- `app/src/main/java/com/roncatech/libvcat/vvdec/VvdecRendererProvider.java` (removed)
+- `app/src/test/java/com/roncatech/libvcat/lcevcvvdec/LcevcVvdecDecoderTest.java`
+- `app/src/test/java/com/roncatech/libvcat/lcevcvvdec/VvcVideoCfgParserTest.java`
+- `app/src/test/java/com/roncatech/libvcat/vvdec/VvcVideoCfgParserTest.java` (removed)
+- `build.gradle`
+- `gradlew.bat`
+- `licenses/APACHE-2.0-LICENSE.txt`
+- `licenses/LCEVCdec-LICENSE.txt`
+- `licenses/VVDEC-LICENSE.txt`
+- `settings.gradle`

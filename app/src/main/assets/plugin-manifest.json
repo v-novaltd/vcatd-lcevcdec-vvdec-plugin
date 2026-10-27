@@ -1,3 +1,4 @@
 {
-  "pluginClass": "com.roncatech.libvcat.vvdec.VcatVvcdecPlugin"
+  "pluginClass": "com.roncatech.libvcat.lcevcvvdec.VcatLcevcVvdecVulkanPlugin",
+  "loaderClass": "com.roncatech.libvcat.lcevcvvdec.LcevcVvdecLibrary"
 }
